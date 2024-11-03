@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Streams DynamoDB table changes to EventBridge (uksb-1tthgi812) (tag:dynamodb-eventbridge-java)
+Resources:
+  # Main DynamoDB Table with Stream
+  PulseValuesStream:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: pulse_values
+      AttributeDefinitions:
+        - AttributeName: patientId
+          AttributeType: N
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+
+  # DynamoDB Table for Storing Abnormal Values
+  PulseAbnormalValues:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: pulse_abnormal_values
+      AttributeDefinitions:
+        - AttributeName: patientId
+          AttributeType: N
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  # PulseJumpAnalyzer Lambda Function
+  PulseJumpAnalyzer:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      CodeUri: pulse-jump-analyzer
+      Handler: telran.pulse.monitoring.App::handleRequest
+      Runtime: java17
+      Architectures:
+        - x86_64
+      Timeout: 30
+      MemorySize: 512
+      Events:
+        TableRecordChange:
+          Type: DynamoDB
+          Properties:
+            StartingPosition: LATEST
+            Stream: !GetAtt PulseValuesStream.StreamArn
+      Policies:
+        - Statement:
+          - Effect: Allow
+            Resource: '*'
+            Action:
+              - dynamodb:*
+
+  # PulseValuesAnalyzer Lambda Function
+  PulseValuesAnalyzer:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      CodeUri: pulse-values-analyzer
+      Handler: telran.pulse.monitoring.App::handleRequest
+      Runtime: java17
+      Architectures:
+        - x86_64
+      Timeout: 30
+      MemorySize: 512
+      Events:
+        TableRecordChange:
+          Type: DynamoDB
+          Properties:
+            StartingPosition: LATEST
+            Stream: !GetAtt PulseValuesStream.StreamArn
+      Environment:
+        Variables:
+          TABLE_NAME: pulse_abnormal_values
+          LOGGING_LEVEL: "FINER"
+          LOWER_THRESHOLD: "150"
+          UPPER_THRESHOLD: "190"
+      Policies:
+        - Statement:
+          - Effect: Allow
+            Resource: '*'
+            Action:
+              - dynamodb:*
