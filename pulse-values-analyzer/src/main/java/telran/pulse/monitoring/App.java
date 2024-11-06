@@ -1,63 +1,89 @@
 package telran.pulse.monitoring;
 
-import java.util.Map;
+import java.util.*;
 import java.util.logging.*;
 
-import com.amazonaws.services.dynamodbv2.*;
-import com.amazonaws.services.dynamodbv2.document.*;
-import com.amazonaws.services.lambda.runtime.*;
-import com.amazonaws.services.lambda.runtime.events.*;
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.events.DynamodbEvent;
 import com.amazonaws.services.lambda.runtime.events.models.dynamodb.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.*;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest.Builder;
+import static telran.pulse.monitoring.Constants.*;
 
 public class App {
-    private Logger logger;
-    private DynamoDB dynamo;
-    private Table table;
-    private AppConfig config;
 
-    public App() {
-        this.logger = Logger.getLogger("PulseValuesAnalyzer");
-        this.config = AppConfig.getConfig(logger);
-        this.dynamo = new DynamoDB(AmazonDynamoDBClientBuilder.defaultClient());
-        this.table = dynamo.getTable(config.getTableName());
-        setLogger();
-        logger.info(config.toString());
-    }
+    static DynamoDbClient client = DynamoDbClient.builder().build();
+    static Builder request;
+    static Logger logger = Logger.getLogger("pulse-value-analyzer");
+    static {
+        loggerSetUp();
 
-    private void setLogger() {
-        LogManager.getLogManager().reset();
-        logger.setLevel(config.getLoggerLevel());
-        Handler consoleHandler = new ConsoleHandler();
-        consoleHandler.setLevel(logger.getLevel());
-        logger.addHandler(consoleHandler);
     }
 
     public void handleRequest(DynamodbEvent event, Context context) {
+        request = PutItemRequest.builder().tableName(ABNORMAL_VALUES_TABLE_NAME);
         event.getRecords().forEach(r -> {
             Map<String, AttributeValue> map = r.getDynamodb().getNewImage();
-            if ("INSERT".equals(r.getEventName()) && map != null) {
-                String patientId = map.get("patientId").getN();
-                String timestamp = map.get("timestamp").getN();
-                int value = Integer.parseInt(map.get("value").getN());
-
-                logger.finer(String.format("Received: patientId=%s, timestamp=%s, value=%d", patientId, timestamp, value));
-
-                if (value < config.getLowerThreshold() || value > config.getUpperThreshold()) {
-                    logger.info(String.format("Abnormal value detected: patientId=%s, value=%d", patientId, value));
-                    putAbnormalValue(patientId, timestamp, value);
-                }
+            if (map == null) {
+                logger.warning("No new image found");
+            } else if (r.getEventName().equals("INSERT")) {
+                processPulseValue(map);
+            } else {
+                logger.warning(String.format("The event isn't INSERT but %s", r.getEventName()));
             }
+
         });
     }
 
-    private void putAbnormalValue(String patientId, String timestamp, int value) {
+    private static void loggerSetUp() {
+        Level loggerLevel = getLoggerLevel();
+        LogManager.getLogManager().reset();
+        Handler handler = new ConsoleHandler();
+        logger.setLevel(loggerLevel);
+        handler.setLevel(Level.FINEST);
+        logger.addHandler(handler);
+    }
+
+    private static Level getLoggerLevel() {
+        String levelStr = System.getenv()
+                .getOrDefault(LOGGER_LEVEL_ENV_VARIABLE, DEFAULT_LOGGER_LEVEL);
+        Level res = null;
         try {
-            table.putItem(new Item()
-                    .withPrimaryKey("patientId", Long.parseLong(patientId))
-                    .withNumber("timestamp", Long.parseLong(timestamp))
-                    .withNumber("value", value));
+            res = Level.parse(levelStr);
         } catch (Exception e) {
-            logger.severe(String.format("Table %s not found: %s", config.getTableName(), e.getMessage()));
+            res = Level.parse(DEFAULT_LOGGER_LEVEL);
         }
+        return res;
+    }
+
+    private void processPulseValue(Map<String, AttributeValue> map) {
+        int value = Integer.parseInt(map.get(VALUE_ATTRIBUTE).getN());
+        logger.finer(getLogMessage(map));
+        if (value > MAX_THRESHOLD_PULSE_VALUE || value < MIN_THRESHOLD_PULSE_VALUE) {
+            processAbnormalPulseValue(map);
+        }
+    }
+
+    private void processAbnormalPulseValue(Map<String, AttributeValue> map) {
+        logger.info(getLogMessage(map));
+        client.putItem(request.item(getPutItemMap(map)).build());
+    }
+
+    private Map<String, software.amazon.awssdk.services.dynamodb.model.AttributeValue> getPutItemMap(
+            Map<String, AttributeValue> map) {
+        Map<String, software.amazon.awssdk.services.dynamodb.model.AttributeValue> res = new HashMap<>();
+        res.put(PATIENT_ID_ATTRIBUTE, software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
+                .n(map.get(PATIENT_ID_ATTRIBUTE).getN()).build());
+        res.put(TIMESTAMP_ATTRIBUTE, software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
+                .n(map.get(TIMESTAMP_ATTRIBUTE).getN()).build());
+        res.put(VALUE_ATTRIBUTE, software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
+                .n(map.get(VALUE_ATTRIBUTE).getN()).build());
+        return res;
+    }
+
+    private String getLogMessage(Map<String, AttributeValue> map) {
+        return String.format("patientId: %s, value: %s", map.get(PATIENT_ID_ATTRIBUTE).getN(),
+                map.get(VALUE_ATTRIBUTE).getN());
     }
 }

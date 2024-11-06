@@ -1,10 +1,22 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: Streams DynamoDB table changes to EventBridge (uksb-1tthgi812) (tag:dynamodb-eventbridge-java)
+Globals:
+  Function:
+    Handler: telran.pulse.monitoring.App::handleRequest
+    Runtime: java17
+    Architectures:
+      - x86_64
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        LOGGER_LEVEL: INFO
+
 Resources:
-  # Main DynamoDB Table with Stream
+  #DynamoDB Streams specification
   PulseValuesStream:
-    Type: 'AWS::DynamoDB::Table'
+    Type: "AWS::DynamoDB::Table"
     Properties:
       TableName: pulse_values
       AttributeDefinitions:
@@ -21,11 +33,9 @@ Resources:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
       StreamSpecification:
-          StreamViewType: NEW_AND_OLD_IMAGES
-
-  # DynamoDB Table for Storing Abnormal Values
-  PulseAbnormalValues:
-    Type: 'AWS::DynamoDB::Table'
+        StreamViewType: NEW_AND_OLD_IMAGES
+  PulseAbnormalValuesStream:
+    Type: "AWS::DynamoDB::Table"
     Properties:
       TableName: pulse_abnormal_values
       AttributeDefinitions:
@@ -41,57 +51,47 @@ Resources:
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
 
-  # PulseJumpAnalyzer Lambda Function
+  # Define the publisher Lambda function with permissions
   PulseJumpAnalyzer:
-    Type: 'AWS::Serverless::Function'
+    Type: "AWS::Serverless::Function"
     Properties:
       CodeUri: pulse-jump-analyzer
-      Handler: telran.pulse.monitoring.App::handleRequest
-      Runtime: java17
-      Architectures:
-        - x86_64
-      Timeout: 30
-      MemorySize: 512
+
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Resource: "*"
+              Action:
+                - dynamodb:*
       Events:
         TableRecordChange:
           Type: DynamoDB
           Properties:
             StartingPosition: LATEST
             Stream: !GetAtt PulseValuesStream.StreamArn
-      Policies:
-        - Statement:
-          - Effect: Allow
-            Resource: '*'
-            Action:
-              - dynamodb:*
-
-  # PulseValuesAnalyzer Lambda Function
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName": ["INSERT"]}'
+  # Define the publisher Lambda function with permissions
   PulseValuesAnalyzer:
-    Type: 'AWS::Serverless::Function'
+    Type: "AWS::Serverless::Function"
     Properties:
       CodeUri: pulse-values-analyzer
-      Handler: telran.pulse.monitoring.App::handleRequest
-      Runtime: java17
-      Architectures:
-        - x86_64
-      Timeout: 30
-      MemorySize: 512
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Resource: "*"
+              Action:
+                - dynamodb:*
       Events:
         TableRecordChange:
           Type: DynamoDB
           Properties:
             StartingPosition: LATEST
             Stream: !GetAtt PulseValuesStream.StreamArn
-      Environment:
-        Variables:
-          TABLE_NAME: pulse_abnormal_values
-          LOGGING_LEVEL: "FINER"
-          LOWER_THRESHOLD: "150"
-          UPPER_THRESHOLD: "190"
-      Policies:
-        - Statement:
-          - Effect: Allow
-            Resource: '*'
-            Action:
-              - dynamodb:*
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName": ["INSERT"]}'
