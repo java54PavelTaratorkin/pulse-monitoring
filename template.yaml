@@ -15,6 +15,7 @@ Globals:
 
 Resources:
   #DynamoDB Streams specification
+  #pulse_values
   PulseValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -34,10 +35,47 @@ Resources:
         WriteCapacityUnits: 5
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
+  #pulse_abnormal_values
   PulseAbnormalValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
       TableName: pulse_abnormal_values
+      AttributeDefinitions:
+        - AttributeName: patientId
+          AttributeType: N
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+  #pulse_last_values
+  PulseLastValuesStream:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: pulse_last_values
+      AttributeDefinitions:
+        - AttributeName: patientId
+          AttributeType: N
+      KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+  #pulse_jump_values
+  PulseJumpValuesStream:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: pulse_jump_values
       AttributeDefinitions:
         - AttributeName: patientId
           AttributeType: N
@@ -59,13 +97,23 @@ Resources:
     Type: "AWS::Serverless::Function"
     Properties:
       CodeUri: pulse-jump-analyzer
-
       Policies:
         - Statement:
             - Effect: Allow
               Resource: "*"
               Action:
                 - dynamodb:*
+      Environment:
+        Variables:
+          LAST_VALUES_TABLE_NAME: pulse_last_values
+          JUMP_VALUES_TABLE_NAME: pulse_jump_values
+          PATIENT_ID_ATTRIBUTE: patientId
+          TIMESTAMP_ATTRIBUTE: timestamp
+          PREVIOUS_VALUE_ATTRIBUTE: previousValue
+          VALUE_ATTRIBUTE: value
+          CURRENT_VALUE_ATTRIBUTE: currentValue
+          EVENT_TYPE_ATTRIBUTE: INSERT
+          FACTOR: "0.2"
       Events:
         TableRecordChange:
           Type: DynamoDB
