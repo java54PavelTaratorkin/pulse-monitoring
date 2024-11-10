@@ -1,11 +1,12 @@
 package telran.pulse.monitoring;
 
+import telran.pulse.monitoring.config.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import static telran.pulse.monitoring.AppConfigDefaults.*;
 
-import java.util.logging.*;
-
-public class AppConfig {
-    private Level loggerLevel;
+public class AppConfig extends AppConfigShared {
     private float jumpFactor;
     private String lastValuesTableName;
     private String jumpValuesTableName;
@@ -16,13 +17,12 @@ public class AppConfig {
     private String currentValueAttribute;
     private String eventTypeAttribute;
 
-    private static Logger logger;
     private static AppConfig config = null;
 
-    private AppConfig(Level loggerLevel, float jumpFactor, String lastValuesTableName, String jumpValuesTableName,
+    private AppConfig(Logger logger, Level loggerLevel, float jumpFactor, String lastValuesTableName, String jumpValuesTableName,
                       String patientIdAttribute, String timestampAttribute, String previousValueAttribute,
                       String valueAttribute, String currentValueAttribute, String eventTypeAttribute) {
-        this.loggerLevel = loggerLevel;
+        super(loggerLevel, logger);
         this.jumpFactor = jumpFactor;
         this.lastValuesTableName = lastValuesTableName;
         this.jumpValuesTableName = jumpValuesTableName;
@@ -36,8 +36,8 @@ public class AppConfig {
 
     public static synchronized AppConfig getConfig(Logger logger) {
         if (config == null) {
-            AppConfig.logger = logger;
-            Level loggerLevel = getLoggerValue();
+            setLogger(logger);
+            Level loggerLevel = getLoggerLevelFromEnv();
             float jumpFactor = getEnvFloat(JUMP_FACTOR_ENV, DEFAULT_JUMP_FACTOR);
             String lastValuesTableName = System.getenv().getOrDefault(LAST_VALUES_TABLE_NAME_ENV, DEFAULT_LAST_VALUES_TABLE_NAME);
             String jumpValuesTableName = System.getenv().getOrDefault(JUMP_VALUES_TABLE_NAME_ENV, DEFAULT_JUMP_VALUES_TABLE_NAME);
@@ -48,37 +48,29 @@ public class AppConfig {
             String currentValueAttribute = System.getenv().getOrDefault(CURRENT_VALUE_ATTRIBUTE_ENV, DEFAULT_CURRENT_VALUE_ATTRIBUTE);
             String eventTypeAttribute = System.getenv().getOrDefault(EVENT_TYPE_ATTRIBUTE_ENV, DEFAULT_EVENT_TYPE_ATTRIBUTE);
 
-            config = new AppConfig(loggerLevel, jumpFactor, lastValuesTableName, jumpValuesTableName, 
+            config = new AppConfig(logger, loggerLevel, jumpFactor, lastValuesTableName, jumpValuesTableName, 
                                    patientIdAttribute, timestampAttribute, previousValueAttribute, 
                                    valueAttribute, currentValueAttribute, eventTypeAttribute);
         }
         return config;
     }
 
-    private static Level getLoggerValue() {
-        String loggerLevelStr = System.getenv().getOrDefault(LOGGER_LEVEL_ENV_VARIABLE, DEFAULT_LOGGER_LEVEL);
-        try {
-            return Level.parse(loggerLevelStr.toUpperCase());
-        } catch (Exception e) {
-            logger.severe(loggerLevelStr + " - Invalid logging level. Using default level: " + DEFAULT_LOGGER_LEVEL);
-            return Level.parse(DEFAULT_LOGGER_LEVEL);
-        }
-    }
-
     private static float getEnvFloat(String envName, float defaultValue) {
         String valueStr = System.getenv().getOrDefault(envName, String.valueOf(defaultValue));
+        float result;
         try {
-            return Float.parseFloat(valueStr);
+            result = Float.parseFloat(valueStr);
         } catch (Exception e) {
             logger.severe(String.format("%s - Invalid value for %s. Using default value: %.2f", valueStr, envName, defaultValue));
-            return defaultValue;
+            result = defaultValue;
         }
+        return result;
     }
 
     @Override
     public String toString() {
         return "[" +
-                "loggerLevel=" + loggerLevel +
+                "loggerLevel=" + getLoggerLevel() +
                 ", jumpFactor=" + jumpFactor +
                 ", lastValuesTableName=" + lastValuesTableName +
                 ", jumpValuesTableName=" + jumpValuesTableName +
@@ -88,10 +80,6 @@ public class AppConfig {
                 ", valueAttribute=" + valueAttribute +
                 ", currentValueAttribute=" + currentValueAttribute +
                 "]";
-    }
-
-    public Level getLoggerLevel() {
-        return loggerLevel;
     }
 
     public float getJumpFactor() {

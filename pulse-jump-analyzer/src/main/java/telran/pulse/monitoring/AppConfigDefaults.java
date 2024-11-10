@@ -1,8 +1,8 @@
 package telran.pulse.monitoring;
+import telran.pulse.monitoring.config.*;
 
-public interface AppConfigDefaults {
+public interface AppConfigDefaults extends AppConfigDefaultsShared {
     // Default values for configuration
-    String DEFAULT_LOGGER_LEVEL = "INFO";
     float DEFAULT_JUMP_FACTOR = 0.2f;
     String DEFAULT_LAST_VALUES_TABLE_NAME = "pulse_last_values";
     String DEFAULT_JUMP_VALUES_TABLE_NAME = "pulse_jump_values";
@@ -14,7 +14,6 @@ public interface AppConfigDefaults {
     String DEFAULT_EVENT_TYPE_ATTRIBUTE = "INSERT";
 
     // Environment variable keys
-    String LOGGER_LEVEL_ENV_VARIABLE = "LOGGER_LEVEL";
     String JUMP_FACTOR_ENV = "JUMP_FACTOR";
     String LAST_VALUES_TABLE_NAME_ENV = "LAST_VALUES_TABLE_NAME";
     String JUMP_VALUES_TABLE_NAME_ENV = "JUMP_VALUES_TABLE_NAME";

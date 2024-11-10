@@ -11,7 +11,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest.Builder;
 
-public class App {
+public class App extends AppShared{
 	private static AppConfig config;
 	private static Logger logger;
 
@@ -21,19 +21,10 @@ public class App {
 	static {
 		logger = Logger.getLogger("pulse-jump-analyzer");
 		config = AppConfig.getConfig(logger);
-		loggerSetUp();
-	}
-
-	private static void loggerSetUp() {
-		LogManager.getLogManager().reset();
-		Handler handler = new ConsoleHandler();
-		logger.setLevel(config.getLoggerLevel());
-		handler.setLevel(Level.FINEST);
-		logger.addHandler(handler);
-	}
-
-	public void handleRequest(DynamodbEvent event, Context context) {
 		logger.config(String.format("Environment Variables: %s", config.toString()));
+	}
+
+	public void handleRequest(DynamodbEvent event, Context context) {		
 		event.getRecords().forEach(r -> {
 			Map<String, AttributeValue> map = r.getDynamodb().getNewImage();
 			if (map == null) {
@@ -59,7 +50,7 @@ public class App {
 			jumpProcessing(patientId, currentValue, lastValue, timestamp);
 		}
 		request = PutItemRequest.builder().tableName(config.getLastValuesTableName());
-		putItemToDb(getItemMap(patientId, currentValue));
+		putItemToDb(client, request, getItemMap(patientId, currentValue), logger);
 	}
 
 	private Integer getLastValue(String patientId, Integer currentValue) {
@@ -103,7 +94,6 @@ public class App {
 					software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
 							.n(previousValue.toString()).build());
 		}
-		;
 		map.put(getValueAttributeName(),
 				software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
 						.n(currentValue.toString()).build());
@@ -121,18 +111,9 @@ public class App {
 				: config.getCurrentValueAttribute();
 	}
 
-	private void putItemToDb(Map<String, software.amazon.awssdk.services.dynamodb.model.AttributeValue> map) {
-		try {
-			client.putItem(request.item(map).build());
-		} catch (Exception e) {
-			logger.severe(
-					String.format("Error putting item to DB '%s': %s", request.build().tableName(), e.getMessage()));
-		}
-	}
-
 	private void jumpProcessing(String patientId, Integer currentValue, Integer lastValue, String timestamp) {
 		request = PutItemRequest.builder().tableName(config.getJumpValuesTableName());
-		putItemToDb(getItemMap(patientId, currentValue, lastValue, timestamp));
+		putItemToDb(client, request, getItemMap(patientId, currentValue, lastValue, timestamp), logger);
 		logger.info(String.format("Jump: patientId is %s, lastValue is %d, currentValue is %d, timestamp is %s",
 				patientId, lastValue, currentValue, timestamp));
 	}
@@ -141,9 +122,8 @@ public class App {
 		return (float) Math.abs(currentValue - lastValue) / lastValue > config.getJumpFactor();
 	}
 
-	private String getLogMessage(Map<String, AttributeValue> map) {
-		return String.format("patientId: %s, value: %s", map.get(config.getPatientIdAttribute()).getN(),
-				map.get(config.getValueAttribute()).getN());
-	}
-
+    private String getLogMessage(Map<String, AttributeValue> map) {
+        return String.format("patientId: %s, value: %s", map.get(config.getPatientIdAttribute()).getN(),
+                map.get(config.getValueAttribute()).getN());
+    }
 }

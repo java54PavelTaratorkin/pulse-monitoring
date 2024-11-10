@@ -14,8 +14,8 @@ Globals:
         LOGGER_LEVEL: INFO
 
 Resources:
-  #DynamoDB Streams specification
-  #pulse_values
+  # DynamoDB Streams specification
+  # pulse_values
   PulseValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -35,7 +35,8 @@ Resources:
         WriteCapacityUnits: 5
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
-  #pulse_abnormal_values
+
+  # pulse_abnormal_values
   PulseAbnormalValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -55,7 +56,8 @@ Resources:
         WriteCapacityUnits: 5
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
-  #pulse_last_values
+
+  # pulse_last_values (No Stream Specification)
   PulseLastValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -69,9 +71,8 @@ Resources:
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
-      StreamSpecification:
-        StreamViewType: NEW_AND_OLD_IMAGES
-  #pulse_jump_values
+
+  # pulse_jump_values
   PulseJumpValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -92,7 +93,7 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
-  # Define the publisher Lambda function with permissions
+  # Define the PulseJumpAnalyzer Lambda function
   PulseJumpAnalyzer:
     Type: "AWS::Serverless::Function"
     Properties:
@@ -123,7 +124,8 @@ Resources:
             FilterCriteria:
               Filters:
                 - Pattern: '{"eventName": ["INSERT"]}'
-  # Define the publisher Lambda function with permissions
+
+  # Define the PulseValuesAnalyzer Lambda function
   PulseValuesAnalyzer:
     Type: "AWS::Serverless::Function"
     Properties:
@@ -134,6 +136,9 @@ Resources:
               Resource: "*"
               Action:
                 - dynamodb:*
+      Environment:
+        Variables:
+          SERVERLESS_REST_API_URL: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/range"
       Events:
         TableRecordChange:
           Type: DynamoDB
@@ -143,3 +148,31 @@ Resources:
             FilterCriteria:
               Filters:
                 - Pattern: '{"eventName": ["INSERT"]}'
+
+  # Define the new RangeProviderFunction
+  PulseRangeProviderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: pulse-range-provider
+      Events:
+        RangeApiEvent:
+          Type: Api
+          Properties:
+            Path: /range
+            Method: get
+
+Outputs:
+  # API Gateway endpoint URL for RangeProviderFunction
+  PulseRangeProviderApi:
+    Description: "API Gateway endpoint URL for PulseRangeProviderFunction"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/range/"
+
+  # Lambda function ARN for RangeProviderFunction
+  PulseRangeProviderFunctionArn:
+    Description: "PulseRangeProvider Lambda Function ARN"
+    Value: !GetAtt PulseRangeProviderFunction.Arn  # Updated to match the function name
+
+  # IAM Role for RangeProvider function
+  PulseRangeProviderFunctionIamRole:
+    Description: "Implicit IAM Role created for PulseRangeProvider function"
+    Value: !GetAtt PulseRangeProviderFunctionRole.Arn  # Updated to match the function name
