@@ -11,11 +11,11 @@ Globals:
     MemorySize: 512
     Environment:
       Variables:
-        LOGGER_LEVEL: INFO
+        LOGGER_LEVEL: FINE
 
 Resources:
   # DynamoDB Streams specification
-  # pulse_values
+  # pulse_values DynamoDB table
   PulseValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -36,7 +36,7 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
-  # pulse_abnormal_values
+  # pulse_abnormal_values DynamoDB table
   PulseAbnormalValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -57,7 +57,7 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
-  # pulse_last_values (No Stream Specification)
+  # pulse_last_values (No Stream Specification) DynamoDB table
   PulseLastValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -72,7 +72,7 @@ Resources:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
 
-  # pulse_jump_values
+  # pulse_jump_values DynamoDB table
   PulseJumpValuesStream:
     Type: "AWS::DynamoDB::Table"
     Properties:
@@ -93,7 +93,16 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_AND_OLD_IMAGES
 
-  # Define the PulseJumpAnalyzer Lambda function
+  # Abnormal pulse values notifications SNS Topic
+  AbnormalValuesSNS:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: AbnormalValuesTopic
+      Subscription:
+        - Protocol: email
+          Endpoint: pault83dev@gmail.com
+
+  # PulseJumpAnalyzer Lambda async function
   PulseJumpAnalyzer:
     Type: "AWS::Serverless::Function"
     Properties:
@@ -104,17 +113,6 @@ Resources:
               Resource: "*"
               Action:
                 - dynamodb:*
-      Environment:
-        Variables:
-          LAST_VALUES_TABLE_NAME: pulse_last_values
-          JUMP_VALUES_TABLE_NAME: pulse_jump_values
-          PATIENT_ID_ATTRIBUTE: patientId
-          TIMESTAMP_ATTRIBUTE: timestamp
-          PREVIOUS_VALUE_ATTRIBUTE: previousValue
-          VALUE_ATTRIBUTE: value
-          CURRENT_VALUE_ATTRIBUTE: currentValue
-          EVENT_TYPE_ATTRIBUTE: INSERT
-          FACTOR: "0.2"
       Events:
         TableRecordChange:
           Type: DynamoDB
@@ -125,7 +123,7 @@ Resources:
               Filters:
                 - Pattern: '{"eventName": ["INSERT"]}'
 
-  # Define the PulseValuesAnalyzer Lambda function
+  # PulseValuesAnalyzer Lambda async function
   PulseValuesAnalyzer:
     Type: "AWS::Serverless::Function"
     Properties:
@@ -149,7 +147,7 @@ Resources:
               Filters:
                 - Pattern: '{"eventName": ["INSERT"]}'
 
-  # Define the new RangeProviderFunction
+  # RangeProviderFunction Lambda sync function
   PulseRangeProviderFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -161,18 +159,30 @@ Resources:
             Path: /range
             Method: get
 
+  # Lambda for abnormal pulse values notification 
+  AbnormalValuesNotifier:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: pulse-abnormal-values-notifier
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt AbnormalValuesSNS.TopicName
+      Environment:
+        Variables:
+          TOPIC_ARN: !Ref AbnormalValuesSNS
+          REGION: !Sub ${AWS::Region}
+      Events:
+        TableRecordChange:
+          Type: DynamoDB
+          Properties:
+            StartingPosition: LATEST
+            Stream: !GetAtt PulseAbnormalValuesStream.StreamArn
+            FilterCriteria: 
+              Filters: 
+              - Pattern: '{"eventName": ["INSERT"]}'  
+
 Outputs:
   # API Gateway endpoint URL for RangeProviderFunction
   PulseRangeProviderApi:
     Description: "API Gateway endpoint URL for PulseRangeProviderFunction"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/range/"
-
-  # Lambda function ARN for RangeProviderFunction
-  PulseRangeProviderFunctionArn:
-    Description: "PulseRangeProvider Lambda Function ARN"
-    Value: !GetAtt PulseRangeProviderFunction.Arn  # Updated to match the function name
-
-  # IAM Role for RangeProvider function
-  PulseRangeProviderFunctionIamRole:
-    Description: "Implicit IAM Role created for PulseRangeProvider function"
-    Value: !GetAtt PulseRangeProviderFunctionRole.Arn  # Updated to match the function name

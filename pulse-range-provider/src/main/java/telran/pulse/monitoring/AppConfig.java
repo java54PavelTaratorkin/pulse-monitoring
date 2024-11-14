@@ -1,27 +1,21 @@
 package telran.pulse.monitoring;
 
-import telran.pulse.monitoring.config.*;
-import java.util.logging.*;
+
 import static telran.pulse.monitoring.AppConfigDefaults.*;
+import telran.pulse.monitoring.config.AppConfigBasicShared;
 
-public class AppConfig extends AppConfigShared {
-    private String contentType;
-    private static AppConfig config = null;
+public class AppConfig extends AppConfigBasicShared {
+    private final String contentType;
+    private final String contentTypeAttribute;
 
-    private AppConfig(Logger logger, Level loggerLevel, String contentType) {
-        super(loggerLevel, logger);
-        this.contentType = contentType;
+    public AppConfig(String loggerName) {
+        super(loggerName);
+        this.contentType = System.getenv().getOrDefault(CONTENT_TYPE_ENV, DEFAULT_CONTENT_TYPE);;
+        this.contentTypeAttribute = System.getenv().getOrDefault(CONTENT_TYPE_ATTRIBUTE_ENV, DEFAULT_CONTENT_TYPE_ATTRIBUTE);
     }
 
-    public static synchronized AppConfig getConfig(Logger logger) {
-        if (config == null) {
-            setLogger(logger);
-            Level loggerLevel = getLoggerLevelFromEnv();
-            String contentType = System.getenv().getOrDefault("CONTENT_TYPE", DEFAULT_CONTENT_TYPE);
-
-            config = new AppConfig(logger, loggerLevel, contentType);
-        }
-        return config;
+    public String getContentTypeAttribute() {
+        return contentTypeAttribute;
     }
 
     public String getContentType() {
@@ -30,9 +24,8 @@ public class AppConfig extends AppConfigShared {
 
     @Override
     public String toString() {
-        return "[" +
-                "loggerLevel=" + getLoggerLevel() +
-                ", contentType=" + contentType +
-                "]";
+        return super.toString() + 
+        ", contentTypeAttribute=" + getContentTypeAttribute() +
+        ", contentType=" + getContentType();
     }
 }

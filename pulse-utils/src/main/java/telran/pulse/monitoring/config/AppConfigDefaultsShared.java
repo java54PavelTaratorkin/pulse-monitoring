@@ -2,5 +2,15 @@ package telran.pulse.monitoring.config;
 
 public interface AppConfigDefaultsShared {
     String DEFAULT_LOGGER_LEVEL = "INFO";
+    String DEFAULT_EVENT_TYPE_ATTRIBUTE = "INSERT";
+    String DEFAULT_PATIENT_ID_ATTRIBUTE = "patientId";
+    String DEFAULT_TIMESTAMP_ATTRIBUTE = "timestamp";
+    String DEFAULT_VALUE_ATTRIBUTE = "value";
+
     String LOGGER_LEVEL_ENV_VARIABLE = "LOGGER_LEVEL";
+    String EVENT_TYPE_ATTRIBUTE_ENV = "EVENT_TYPE_ATTRIBUTE";
+    String PATIENT_ID_ATTRIBUTE_ENV = "PATIENT_ID_ATTRIBUTE";
+    String TIMESTAMP_ATTRIBUTE_ENV = "TIMESTAMP_ATTRIBUTE";
+    String VALUE_ATTRIBUTE_ENV = "VALUE_ATTRIBUTE";
+    String LOGGER_NAME_ENV = "LOGGER_NAME";
 }

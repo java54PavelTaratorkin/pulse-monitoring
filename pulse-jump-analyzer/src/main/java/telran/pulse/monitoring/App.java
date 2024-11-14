@@ -10,47 +10,56 @@ import software.amazon.awssdk.services.dynamodb.*;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest.Builder;
+import static telran.pulse.monitoring.AppConfigDefaults.*;
+import static telran.pulse.monitoring.config.AppConfigDefaultsShared.LOGGER_NAME_ENV;
 
-public class App extends AppShared{
-	private static AppConfig config;
-	private static Logger logger;
+public class App {
+    private final DynamoDbClient client;
+    private Builder request;
+    private final AppConfig config;
+    private final AppShared appShared;
+    private final Logger logger;
+    private final String patientIdAttribute;
+    private final String valueAttribute;
+    private final String timestampAttribute;
+    private final String lastValuesTableName;
+    private final String previousValueAttribute;
+    private final String currentValueAttribute;
+    private final String jumpValuesTableName;
 
-	private static DynamoDbClient client = DynamoDbClient.builder().build();
-	private static Builder request;
-
-	static {
-		logger = Logger.getLogger("pulse-jump-analyzer");
-		config = AppConfig.getConfig(logger);
+	public App() {
+		String loggerName = System.getenv().getOrDefault(LOGGER_NAME_ENV, DEFAULT_LOGGER_NAME);
+		this.config = new AppConfig(loggerName);
+		this.logger = config.getLogger();
+		this.patientIdAttribute = config.getPatientIdAttribute();
+		this.valueAttribute = config.getValueAttribute();
+		this.timestampAttribute = config.getTimestampAttribute();
+		this.lastValuesTableName = config.getLastValuesTableName();
+		this.previousValueAttribute = config.getPreviousValueAttribute();
+		this.currentValueAttribute = config.getCurrentValueAttribute();
+		this.jumpValuesTableName = config.getJumpValuesTableName();
 		logger.config(String.format("Environment Variables: %s", config.toString()));
+		this.appShared = new AppShared(logger, config.getEventTypeAttribute());
+		this.client = DynamoDbClient.builder().build();
 	}
 
-	public void handleRequest(DynamodbEvent event, Context context) {		
-		event.getRecords().forEach(r -> {
-			Map<String, AttributeValue> map = r.getDynamodb().getNewImage();
-			if (map == null) {
-				logger.warning("No new image found");
-			} else if (config.getEventTypeAttribute().equals(r.getEventName())) {
-				processPulseValue(map);
-			} else {
-				logger.warning(String.format("The event isn't %s but %s",
-						config.getEventTypeAttribute(), r.getEventName()));
-			}
-		});
+	public void handleRequest(DynamodbEvent event, Context context) {
+		appShared.processEvent(event, this::processPulseValue);
 	}
 
 	private void processPulseValue(Map<String, AttributeValue> map) {
 		logger.info(getLogMessage(map));
-		String patientId = map.get(config.getPatientIdAttribute()).getN();
-		Integer currentValue = Integer.parseInt(map.get(config.getValueAttribute()).getN());
-		String timestamp = map.get(config.getTimestampAttribute()).getN();
+		String patientId = map.get(patientIdAttribute).getN();
+		Integer currentValue = Integer.parseInt(map.get(valueAttribute).getN());
+		String timestamp = map.get(timestampAttribute).getN();
 
 		Integer lastValue = getLastValue(patientId, currentValue);
 
 		if (isJump(currentValue, lastValue)) {
 			jumpProcessing(patientId, currentValue, lastValue, timestamp);
 		}
-		request = PutItemRequest.builder().tableName(config.getLastValuesTableName());
-		putItemToDb(client, request, getItemMap(patientId, currentValue), logger);
+		request = PutItemRequest.builder().tableName(lastValuesTableName);
+		appShared.putItemToDb(client, request, getItemMap(patientId, currentValue));
 	}
 
 	private Integer getLastValue(String patientId, Integer currentValue) {
@@ -60,21 +69,21 @@ public class App extends AppShared{
 			Map<String, software.amazon.awssdk.services.dynamodb.model.AttributeValue> map = client.getItem(request)
 					.item();
 			if (map != null) {
-				lastValue = Integer.parseInt(map.get(config.getValueAttribute()).n());
+				lastValue = Integer.parseInt(map.get(valueAttribute).n());
 			}
 		} catch (Exception e) {
 			logger.severe(String.format("Error retrieving last value from DB '%s': %s",
-					config.getLastValuesTableName(), e.getMessage()));
+					lastValuesTableName, e.getMessage()));
 		}
 		return lastValue;
 	}
 
 	private GetItemRequest getItemRequest(String patientId) {
 		Map<String, software.amazon.awssdk.services.dynamodb.model.AttributeValue> key = Map.of(
-				config.getPatientIdAttribute(),
+				patientIdAttribute,
 				software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder().n(patientId).build());
 
-		return GetItemRequest.builder().tableName(config.getLastValuesTableName()).key(key).build();
+		return GetItemRequest.builder().tableName(lastValuesTableName).key(key).build();
 	}
 
 	private Map<String, software.amazon.awssdk.services.dynamodb.model.AttributeValue> getItemMap(String patientId,
@@ -86,11 +95,11 @@ public class App extends AppShared{
 			Integer currentValue, Integer previousValue, String timestamp) {
 		Map<String, software.amazon.awssdk.services.dynamodb.model.AttributeValue> map = new HashMap<>();
 
-		map.put(config.getPatientIdAttribute(),
+		map.put(patientIdAttribute,
 				software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
 						.n(patientId).build());
 		if (previousValue != null) {
-			map.put(config.getPreviousValueAttribute(),
+			map.put(previousValueAttribute,
 					software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
 							.n(previousValue.toString()).build());
 		}
@@ -98,7 +107,7 @@ public class App extends AppShared{
 				software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
 						.n(currentValue.toString()).build());
 		if (timestamp != null) {
-			map.put(config.getTimestampAttribute(),
+			map.put(timestampAttribute,
 					software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
 							.n(timestamp).build());
 		}
@@ -107,13 +116,12 @@ public class App extends AppShared{
 	}
 
 	private String getValueAttributeName() {
-		return request.build().tableName().equals(config.getLastValuesTableName()) ? config.getValueAttribute()
-				: config.getCurrentValueAttribute();
+		return request.build().tableName().equals(lastValuesTableName) ? valueAttribute	: currentValueAttribute;
 	}
 
 	private void jumpProcessing(String patientId, Integer currentValue, Integer lastValue, String timestamp) {
-		request = PutItemRequest.builder().tableName(config.getJumpValuesTableName());
-		putItemToDb(client, request, getItemMap(patientId, currentValue, lastValue, timestamp), logger);
+		request = PutItemRequest.builder().tableName(jumpValuesTableName);
+		appShared.putItemToDb(client, request, getItemMap(patientId, currentValue, lastValue, timestamp));
 		logger.info(String.format("Jump: patientId is %s, lastValue is %d, currentValue is %d, timestamp is %s",
 				patientId, lastValue, currentValue, timestamp));
 	}
@@ -122,8 +130,8 @@ public class App extends AppShared{
 		return (float) Math.abs(currentValue - lastValue) / lastValue > config.getJumpFactor();
 	}
 
-    private String getLogMessage(Map<String, AttributeValue> map) {
-        return String.format("patientId: %s, value: %s", map.get(config.getPatientIdAttribute()).getN(),
-                map.get(config.getValueAttribute()).getN());
-    }
+	private String getLogMessage(Map<String, AttributeValue> map) {
+		return String.format("patientId: %s, value: %s", map.get(patientIdAttribute).getN(),
+				map.get(valueAttribute).getN());
+	}
 }
